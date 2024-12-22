@@ -44,10 +44,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/battledetails <battleId> - Get details of a battle\n"
         "/battlevoters <battleId> - Get total voters for a battle\n"
         "/leaderboard Get the top voters \n"
-        "/get_voters_list <battleId> \n"
-        "/get_contract_Balance - Get the balance hold by the contract \n"
-        "/close_battle <battleId> - Close the battle with specific battleId \n" 
-        "/transfer_to_owner <amount> <userAddress> <senderAddress> Send the money from contract to the senderAdress : Only Owner\n"
+        "/getVotersList <battleId> \n"
+        "/getContractBalance - Get the balance hold by the contract \n"
+        "/closeBattle <battleId> - Close the battle with specific battleId \n" 
+        "/transferToOwner <amount> <userAddress> <senderAddress> Send the money from contract to the senderAdress : Only Owner\n"
     )
     await update.message.reply_text(help_text)
 
@@ -90,9 +90,6 @@ SONG_CREATOR_MAPPING = {
         {"song": "Classical Song 2", "creator": "0xcd3B766CCDd6AE721141F452C550Ca635964ce71"},
     ],
 }
-
-# Global variable to store votes
-VOTES = {"track1": 0, "track2": 0}
 
 
 async def start_battle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -226,7 +223,7 @@ async def handle_voting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.message.reply_text("❌ Invalid voting data received. Please try again.")
         return
 
-    # Convert `battle_id` and `payment_amount` to appropriate types
+    # Convert battle_id and payment_amount to appropriate types
     try:
         battle_id = int(battle_id)  # Convert to integer if necessary
         payment_amount = float(payment_amount)  # Convert to float for numeric operations
@@ -272,23 +269,28 @@ async def handle_voting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         print(payload)
         response = requests.post(f"{BASE_URL}/votetrack", json=payload)
 
-    # Try to parse the JSON response
+        # Try to parse the JSON response
         data = response.json() if response.status_code == 200 else {}
 
-    # Step 2: Handle response status codes
+        # Step 2: Handle response status codes
+        message_from_backend=""
         if response.status_code == 200:
             transaction_hash = data.get("transactionHash", "N/A")
-            message_from_backend = data.get("message", "Vote recorded successfully.")
+            message_from_backend = data.get("message", "N/A")
 
-            if "already" not in message_from_backend.lower():
+            if message_from_backend=="You have already voted in this battle." :
+                message = message = "❌ You have already voted in this battle."
+            elif transaction_hash!="N/A":
                 message = (
                 f"✅ Your vote for Track {track_number} has been recorded!\n"
-                f"Transaction Hash: {transaction_hash}"
-            )
+                f"Transaction Hash: {transaction_hash}")
             else:
-                message = "❌ You have already voted in this battle."
+                message="ELse Case ----"
+        elif response.status_code == 500 and message_from_backend=="Battle voting period has ended":
+                print("hihiiiihiihhhhhhhhhhhhhhhhhhhhhhhiiiiiiiiiiiiiiiiii----------------------------------------------------------------------------------------------------------------*************************************************************_________________________________________________---------------------------------------")
+                message = "❌ Battle voting period has ended"
         else:
-        # Handle non-200 status codes
+            # Handle non-200 status codes
             message = f"❌ Error: {data.get('error', 'Unknown error occurred.')}"
     except requests.exceptions.RequestException as e:
     # Catch network-related exceptions
@@ -333,7 +335,6 @@ async def handle_voting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except Exception as e:
             logger.error(f"Exception occurred while updating UI: {e}")
             await query.message.reply_text("❌ Failed to update the voting UI.")
-
 
 # Command: /votetrack
 async def vote_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -382,7 +383,13 @@ async def get_votes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         response = requests.get(f"{BASE_URL}/battle/{battleId}/votes")
-        data = response.json()
+        
+        try:
+            data = response.json()
+        except ValueError:
+            logger.error("Invalid JSON response")
+            await update.message.reply_text("❌ Backend returned an invalid response.")
+            return
 
         if response.status_code == 200:
             message = (
@@ -454,7 +461,9 @@ async def get_total_voters(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Fetches the leaderboard for top tracks."""
     try:
-        response = requests.get(f"{BASE_URL}/leaderboard")
+        # Assuming 'battleId' is somehow available in the context, for example, from the command
+        battle_id = context.args[0]  # Replace with actual battleId from context or message
+        response = requests.get(f"{BASE_URL}/leaderboard/{battle_id}")  # Pass battleId here
         data = response.json()
 
         if response.status_code == 200:
@@ -470,24 +479,20 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(leaderboard_text)
 
 # Command: /closebattle
-async def close_battle(update: Update, context: ContextTypes.DEFAULT_TYPE, battleId: int) -> None:
+async def close_battle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Closes a battle and retrieves the winner."""
     try:
         # Making API request to get the winner after battle is closed
+        battleId = context.args[0] 
         response = requests.get(f"http://localhost:5000/battle/{battleId}/winner")
         data = response.json()
 
         if response.status_code == 200:
-            if data.get("winner") and data["winner"].get("_length_", 0) > 0:
-                winner_info = data["winner"]
-                message = (
-                    f"🎉 Battle {data['battleId']} has been closed!\n"
-                    f"Winner Details: {winner_info}"
-                )
-            else:
-                message = (
-                    f"⚠ Battle {data['battleId']} has been closed, but no winner was found."
-                )
+            winnerVotersList = data.get("winnerVotersList", [])
+            winner = data.get("part1","N/A")
+            
+            voters = "\n".join(winnerVotersList)
+            message = f"👥 {winner} \n👥 Winner Voters are : {voters}"
         else:
             message = f"❌ Error: {data.get('error', 'Unknown error')}"
 
@@ -549,12 +554,12 @@ async def get_voters_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # Command: /transfertouser
 async def transfer_to_owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Transfers money from the contract to the specified user address."""
-    if len(context.args) != 1:
-        await update.message.reply_text("Usage: /transfertouser <userAddress>")
+    if len(context.args) != 3:
+        await update.message.reply_text("Usage: /transfertouser <amount> <userAddress> <senderAddress>")
         return
 
-    user_address = context.args[0]
-    payload = {"userAddress": user_address}
+    amount, userAddress, senderAddress = context.args
+    payload = {"userAddress": userAddress, "amount": amount, "senderAddress": senderAddress}
 
     try:
         # Making POST request
@@ -562,7 +567,7 @@ async def transfer_to_owner(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         data = response.json()
 
         if response.status_code == 200 and data.get("success"):
-            message = f"✅ Transfer successful to address: {user_address}"
+            message = f"✅ Transfer successful to address: {userAddress}"
         else:
             message = f"❌ Transfer failed: {data.get('error', 'Unknown error occurred')}"
     except Exception as e:
@@ -593,17 +598,17 @@ def save_data():
 async def start(update: Update, context: CallbackContext):
     """Sends a welcome message."""
     await update.message.reply_text("Welcome to the Music Battle Bot! 🎶\nType /help to see available commands.")
-    await update.message.reply_text("Welcome! Use /setwallet <wallet> to link your wallet address.")
+    await update.message.reply_text("Use /setwallet <wallet> to link your wallet address.")
 
 async def set_wallet(update: Update, context: CallbackContext):
     # Get the wallet address (previously set, if any)
-    tempAddress = get_wallet(update, context)
+    # tempAddress = get_wallet(update, context)
 
-    # If the user already has a wallet address set, notify them
-    if tempAddress != "":
-        print(f"You have already set the wallet address.\n Your wallet address is {tempAddress}")
-        await update.message.reply_text(f"You have already set the wallet address\n Your wallet address is {tempAddress}")
-        return  # Exit the function if the wallet is already set
+    # # If the user already has a wallet address set, notify them
+    # if tempAddress != "":
+    #     print(f"You have already set the wallet address.\n Your wallet address is {tempAddress}")
+    #     await update.message.reply_text(f"You have already set the wallet address\n Your wallet address is {tempAddress}")
+    #     return  # Exit the function if the wallet is already set
 
     # Get group ID, user ID, and username
     group_id = update.message.chat_id
@@ -676,10 +681,10 @@ def main():
     application.add_handler(CommandHandler("battledetails", get_battle_details))
     application.add_handler(CommandHandler("battlevoters", get_total_voters))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
-    application.add_handler(CommandHandler("transfer_to_owner", transfer_to_owner))
-    application.add_handler(CommandHandler("get_voters_list", get_voters_list))
-    application.add_handler(CommandHandler("get_contract_Balance", get_balance))
-    application.add_handler(CommandHandler("close_battle", close_battle))
+    application.add_handler(CommandHandler("transferToOwner", transfer_to_owner))
+    application.add_handler(CommandHandler("getVotersList", get_voters_list))
+    application.add_handler(CommandHandler("getContractBalance", get_balance))
+    application.add_handler(CommandHandler("closeBattle", close_battle))
 
     application.add_handler(CallbackQueryHandler(handle_voting, pattern=r"^vote\|"))
     application.add_handler(CallbackQueryHandler(handle_genre_selection, pattern=r"^genre\|"))
